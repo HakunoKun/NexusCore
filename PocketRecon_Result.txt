@@ -1,0 +1,10 @@
+﻿PocketRecon v2.0 — 2026-05-19 14:06:32
+Target: 192.168.100.66
+
+══ MODULE 5: DYNAMIC SERVER DEPLOY (Port 9000) ══
+[!] Not root — deploying in user space (/data/local/tmp)
+[*] Pushing BusyBox to device...
+[*] Pushing Web Dashboard files...
+[*] Starting Web Server on port 9000...
+[+] Server deployed and running in background!
+[+] Access Dashboard at: http://
