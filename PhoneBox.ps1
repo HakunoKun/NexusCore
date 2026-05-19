@@ -698,7 +698,7 @@ function Show-DisconnectMenu {
         Write-Host "  [*] Status: Launching scrcpy..." -ForegroundColor DarkGray
 
         # Build scrcpy arguments with quiet log level
-        $scrcpyArgs = @("-s", $targetStr, "--stay-awake", "--keyboard=uhid", "--power-off-on-close", "--log-level=error")
+        $scrcpyArgs = @("-s", $targetStr, "--stay-awake", "--keyboard=uhid", "--power-off-on-close", "-V", "error")
 
         if ($connType -eq "WiFi") {
             $scrcpyArgs += @(
@@ -713,8 +713,11 @@ function Show-DisconnectMenu {
             $scrcpyArgs += @("--turn-screen-off", "--max-size=1920", "--video-bit-rate=16M", "--max-fps=60")
         }
 
+        # Clean up old log files before starting
+        if (Test-Path scrcpy_log.tmp) { Remove-Item scrcpy_log.tmp -Force }
+
         $sessionStart = Get-Date
-        & .\scrcpy.exe $scrcpyArgs
+        & .\scrcpy.exe $scrcpyArgs > $null 2> scrcpy_log.tmp
         $scrcpyExitCode = $LASTEXITCODE
         $sessionDuration = ((Get-Date) - $sessionStart).TotalSeconds
 
@@ -723,10 +726,20 @@ function Show-DisconnectMenu {
             if ($sessionDuration -lt 3) {
                 Write-Host ""
                 Write-Host "  [!] scrcpy exited immediately (Exit Code: $scrcpyExitCode)." -ForegroundColor Red
-                Write-Host "  Please check the error message above." -ForegroundColor Yellow
+                if (Test-Path scrcpy_log.tmp) {
+                    $err = Get-Content scrcpy_log.tmp -Raw
+                    if ($err) {
+                        Write-Host "  [!] Error Details:" -ForegroundColor Red
+                        Write-Host $err -ForegroundColor Yellow
+                    }
+                }
                 Write-Host "  Press any key to show menu..." -ForegroundColor DarkGray
                 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
             }
+        }
+
+        # Clean up temporary log files on success/exit
+        if (Test-Path scrcpy_log.tmp) { Remove-Item scrcpy_log.tmp -Force }
 
             # Connection dropped or failed to establish
             if ($sessionDuration -gt 10) {
