@@ -736,10 +736,6 @@ function Show-DisconnectMenu {
                 Write-Host "  Press any key to show menu..." -ForegroundColor DarkGray
                 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
             }
-        }
-
-        # Clean up temporary log files on success/exit
-        if (Test-Path scrcpy_log.tmp) { Remove-Item scrcpy_log.tmp -Force }
 
             # Connection dropped or failed to establish
             if ($sessionDuration -gt 10) {
@@ -757,6 +753,9 @@ function Show-DisconnectMenu {
                 continue ConnectLoop
             }
         }
+
+        # Clean up temporary log files on success/exit
+        if (Test-Path scrcpy_log.tmp) { Remove-Item scrcpy_log.tmp -Force }
 
         # Reset retryCount for future sessions on normal exit
         $retryCount = 0
