@@ -217,7 +217,13 @@ function Show-ConnectPanel {
     param (
         [string]$IP,
         [string]$Model    = "Android Device",
-        [string]$ConnType = "WiFi"   # "WiFi" or "USB"
+        [string]$ConnType = "WiFi",   # "WiFi" or "USB"
+        [string]$Mode     = "",
+        [string]$Quality  = "",
+        [string]$Latency  = "",
+        [string]$Buffer   = "",
+        [string]$Screen   = "OFF",
+        [string]$Keyboard = "UHID Hardware Emulation"
     )
     Clear-Host
     Write-Host ""
@@ -225,16 +231,14 @@ function Show-ConnectPanel {
     # Panel color & info based on actual connection type
     if ($ConnType -eq "USB") {
         $pc       = "Cyan"
-        $modeLbl  = "USB High-Performance Stream"
-        $qualLbl  = "1920p / 16 Mbps / 60 fps"
+        $modeLbl  = if ($Mode) { $Mode } else { "USB High-Performance Stream" }
+        $qualLbl  = if ($Quality) { $Quality } else { "1920p / 16 Mbps / 60 fps" }
         $scrLbl   = "OFF  (saves battery)"
-        $kbLbl    = "UHID Hardware Emulation"
     } else {
         $pc       = "Green"
-        $modeLbl  = "Wireless Adaptive Stream"
-        $qualLbl  = "1280p / 16 Mbps / 60 fps"
+        $modeLbl  = if ($Mode) { $Mode } else { "Wireless Adaptive Stream" }
+        $qualLbl  = if ($Quality) { $Quality } else { "1280p / 16 Mbps / 60 fps" }
         $scrLbl   = "OFF  (keeps WiFi chip active)"
-        $kbLbl    = "UHID Hardware Emulation"
     }
 
     Write-Host "  ╔══════════════════════════════════════════════════════════╗" -ForegroundColor $pc
@@ -244,12 +248,18 @@ function Show-ConnectPanel {
     Write-PanelLine "   Device  :  $Model" "White" $pc
     Write-PanelLine "   Target  :  $IP" "Yellow" $pc
     Write-PanelLine "   Connect :  $ConnType" $(if ($ConnType -eq "USB") {"Cyan"} else {"Green"}) $pc
+    if ($Latency) {
+        Write-PanelLine "   Latency :  $Latency" "DarkYellow" $pc
+    }
     Write-PanelLine "" "White" $pc
     Write-Host "  ╠══════════════════════════════════════════════════════════╣" -ForegroundColor $pc
     Write-PanelLine "   Mode    :  $modeLbl" "Cyan" $pc
     Write-PanelLine "   Quality :  $qualLbl" "Cyan" $pc
+    if ($Buffer) {
+        Write-PanelLine "   Buffer  :  $Buffer" "Cyan" $pc
+    }
     Write-PanelLine "   Screen  :  $scrLbl" "DarkCyan" $pc
-    Write-PanelLine "   Keyboard:  $kbLbl" "DarkCyan" $pc
+    Write-PanelLine "   Keyboard:  $Keyboard" "DarkCyan" $pc
     Write-PanelLine "" "White" $pc
     Write-Host "  ╚══════════════════════════════════════════════════════════╝" -ForegroundColor $pc
     Write-Host ""
@@ -578,53 +588,28 @@ function Show-DisconnectMenu {
     $maxRetries = 3
     $retryCount = 0
     :ConnectLoop while ($true) {
-
-        Show-ConnectPanel -IP $targetIp -Model $targetModel -ConnType $connType
-
         Set-Location $scrcpyPath
 
-        # Determine the scrcpy/adb target string
+        # Determine the scrcpy/adb target string & pre-calculate specs
+        $modeLbl = ""
+        $qualLbl = ""
+        $latencyVal = ""
+        $bufVal = ""
+
         if ($isUsb -and $connType -eq "USB") {
-            # Mirror via USB serial
             $targetStr = $targetSerial
-            Write-Host "  ► Using USB connection ($targetStr)..." -ForegroundColor Cyan
+            $modeLbl = "USB High-Performance Stream"
+            $qualLbl = "1920p / 16 Mbps / 60 fps"
+            $latencyVal = "Wired (USB)"
+            $bufVal = "None"
         } else {
-            # WiFi connection (either ADB_NET, READY, Manual IP, or USB->WiFi transition)
             $targetStr = "$targetIp`:5555"
-            
-            # Check if already connected in ADB
-            $adbDevices = & .\adb.exe devices
-            $isDeviceConnected = $false
-            foreach ($line in $adbDevices) {
-                if ($line -match "^$([regex]::Escape($targetStr))\s+device$") {
-                    $isDeviceConnected = $true
-                    break
-                }
-            }
 
-            if ($isDeviceConnected -and $retryCount -eq 0) {
-                Write-Host "  ► Using existing ADB/Net session ($targetStr)..." -ForegroundColor Green
-            } else {
-                if ($retryCount -gt 0) {
-                    Write-Host "  ► Reconnecting ADB (Attempt $retryCount of $maxRetries)..." -ForegroundColor Yellow
-                } else {
-                    Write-Host "  ► Establishing ADB connection: $targetStr..." -ForegroundColor Yellow
-                }
-                & .\adb.exe disconnect $targetStr | Out-Null
-                & .\adb.exe connect $targetStr
-                Start-Sleep -Seconds 1
-            }
-        }
-
-        Write-Host ""
-        Write-Host "  ► Launching scrcpy..." -ForegroundColor Yellow
-        Write-Host "  ────────────────────────────────────────────────────────────" -ForegroundColor DarkGreen
-
-        $scrcpyArgs = @("-s", $targetStr, "--stay-awake", "--keyboard=uhid", "--power-off-on-close")
-
-        if ($connType -eq "WiFi") {
-            # Dynamic Network Quality Assessment
+            # Show a simple scanning message on clean screen first
+            Clear-Host
+            Write-Host ""
             Write-Host "  ► Testing network latency to $targetIp..." -ForegroundColor DarkGray
+
             $ping = New-Object System.Net.NetworkInformation.Ping
             $pingTimes = @()
             for ($i = 0; $i -lt 3; $i++) {
@@ -651,34 +636,71 @@ function Show-DisconnectMenu {
                 $bitRate = "6M"
                 $fps = 30
                 $buffer = 150
-                $qualityDesc = "Unstable/No Response"
-                $descColor = "Yellow"
+                $latencyVal = "Unstable/No Response"
             } elseif ($avgPing -lt 15) {
                 # Excellent connection (Close to router / 5GHz)
                 $maxSize = 1280
                 $bitRate = "12M"
                 $fps = 60
                 $buffer = 50
-                $qualityDesc = "Excellent (${avgPingRound}ms)"
-                $descColor = "Green"
+                $latencyVal = "Excellent (${avgPingRound}ms)"
             } elseif ($avgPing -lt 50) {
                 # Good connection
                 $maxSize = 1024
                 $bitRate = "8M"
                 $fps = 60
                 $buffer = 100
-                $qualityDesc = "Good (${avgPingRound}ms)"
-                $descColor = "Green"
+                $latencyVal = "Good (${avgPingRound}ms)"
             } else {
                 # High latency / unstable
                 $maxSize = 800
                 $bitRate = "4M"
                 $fps = 30
                 $buffer = 200
-                $qualityDesc = "High Latency (${avgPingRound}ms)"
-                $descColor = "Red"
+                $latencyVal = "High Latency (${avgPingRound}ms)"
+            }
+            $modeLbl = "Wireless Adaptive Stream"
+            $qualLbl = "${maxSize}p / $bitRate / $fps fps"
+            $bufVal = "${buffer}ms"
+        }
+
+        # Draw the clean panel with all computed data
+        Show-ConnectPanel -IP $targetIp -Model $targetModel -ConnType $connType -Mode $modeLbl -Quality $qualLbl -Latency $latencyVal -Buffer $bufVal
+
+        # ADB connection status checks (printed quietly underneath the panel)
+        if ($connType -eq "WiFi") {
+            # Check if already connected in ADB
+            $adbDevices = & .\adb.exe devices
+            $isDeviceConnected = $false
+            foreach ($line in $adbDevices) {
+                if ($line -match "^$([regex]::Escape($targetStr))\s+device$") {
+                    $isDeviceConnected = $true
+                    break
+                }
             }
 
+            if ($isDeviceConnected -and $retryCount -eq 0) {
+                Write-Host "  [*] Status: Using existing ADB session." -ForegroundColor DarkGray
+            } else {
+                if ($retryCount -gt 0) {
+                    Write-Host "  [*] Status: Reconnecting ADB (Attempt $retryCount of $maxRetries)..." -ForegroundColor DarkGray
+                } else {
+                    Write-Host "  [*] Status: Establishing ADB connection..." -ForegroundColor DarkGray
+                }
+                & .\adb.exe disconnect $targetStr | Out-Null
+                & .\adb.exe connect $targetStr | Out-Null
+                Start-Sleep -Seconds 1
+            }
+        } else {
+            Write-Host "  [*] Status: Using USB session ($targetStr)..." -ForegroundColor DarkGray
+        }
+
+        Write-Host "  [*] Status: Launching scrcpy..." -ForegroundColor DarkGray
+
+        # Build scrcpy arguments with quiet log level
+        $scrcpyArgs = @("-s", $targetStr, "--stay-awake", "--keyboard=uhid", "--power-off-on-close", "--log-level=error")
+
+        if ($connType -eq "WiFi") {
             $scrcpyArgs += @(
                 "--turn-screen-off",
                 "--max-size=$maxSize",
@@ -686,11 +708,9 @@ function Show-DisconnectMenu {
                 "--max-fps=$fps",
                 "--video-buffer=$buffer"
             )
-            Write-Host "  [WiFi] Adaptive: $qualityDesc | ${maxSize}p @ $fps fps | Buffer ${buffer}ms" -ForegroundColor $descColor
         } else {
             # USB: high-performance, screen off
             $scrcpyArgs += @("--turn-screen-off", "--max-size=1920", "--video-bit-rate=16M", "--max-fps=60")
-            Write-Host "  [USB]  Hi-Perf:  1920p / 16 Mbps / 60fps | Screen OFF" -ForegroundColor Cyan
         }
 
         $sessionStart = Get-Date
